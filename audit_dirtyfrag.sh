@@ -107,11 +107,14 @@ KVER_MINOR=$(cut -d. -f2 <<< "$KERNEL")
 KVER_PATCH=$(cut -d. -f3 <<< "$KERNEL" | grep -oP '^\d+' || echo 0)
 
 DISTRO_NAME="unknown"; DISTRO_ID="unknown"; DISTRO_VERSION="0"
-if [[ -f /etc/os-release ]]; then
-    source /etc/os-release
-    DISTRO_NAME="${NAME:-unknown} ${VERSION_ID:-}"
-    DISTRO_ID="${ID:-unknown}"
-    DISTRO_VERSION="${VERSION_ID:-0}"
+if [[ -r /etc/os-release ]]; then
+    # Parsed as plain key=value text, not sourced — /etc/os-release is
+    # shell syntax and sourcing it would execute arbitrary embedded code.
+    _osrel() { sed -n "/^$1=/{s///;s/^[\"']//;s/[\"']\$//;p;q;}" /etc/os-release; }
+    OS_NAME=$(_osrel NAME); OS_ID=$(_osrel ID); OS_VERSION_ID=$(_osrel VERSION_ID)
+    DISTRO_NAME="${OS_NAME:-unknown} ${OS_VERSION_ID}"
+    DISTRO_ID="${OS_ID:-unknown}"
+    DISTRO_VERSION="${OS_VERSION_ID:-0}"
 fi
 
 info "Hostname   : $HOSTNAME_FQDN"
