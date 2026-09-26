@@ -1,3 +1,7 @@
 #!/bin/bash
-# Mock sysctl: every key reads as unavailable (the script prints N/A).
-exit 1
+# Mock sysctl: `sysctl -n <key>` prints $MOCK_SYSCTL_<key with dots as
+# underscores>, or fails (the script then prints N/A) when that is unset.
+[[ "${1:-}" == "-n" ]] && shift
+var="MOCK_SYSCTL_${1//./_}"
+[[ -n "${!var:-}" ]] || exit 1
+echo "${!var}"

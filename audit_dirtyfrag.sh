@@ -86,6 +86,10 @@ sep()     { printf "  ${DIM}─────────────────�
 add_issue()      { ISSUES+=("$1"); }
 add_mitigation() { MITIGATIONS+=("$1"); }
 
+# _ko_shipped <path under kernel/ without extension>: true if the running
+# kernel ships that module in any compression (.ko, .ko.xz, .ko.zst, ...).
+_ko_shipped() { compgen -G "$ROOT/lib/modules/$(uname -r)/kernel/$1.ko*" > /dev/null; }
+
 # ─── Banner ───────────────────────────────────────────────────────────────────
 [[ -t 1 ]] && printf '\033[2J\033[H' || true
 
@@ -371,9 +375,7 @@ else
 fi
 
 # ── Check if rxrpc exists as a module at all (might not be shipped on older distros) ──
-if [[ ! -f "$ROOT/lib/modules/$(uname -r)/kernel/net/rxrpc/rxrpc.ko" ]] && \
-   [[ ! -f "$ROOT/lib/modules/$(uname -r)/kernel/net/rxrpc/rxrpc.ko.xz" ]] && \
-   [[ "$RXRPC_BUILTIN" == "false" ]]; then
+if ! _ko_shipped net/rxrpc/rxrpc && [[ "$RXRPC_BUILTIN" == "false" ]]; then
     ok "rxrpc module not present on this system — CVE-2026-43500 NOT applicable"
     VULN_RXRPC=false
 else
@@ -433,23 +435,43 @@ elif "$VULN_RXRPC" && "$RXRPC_LOADED"; then
     warn "rxrpc NOT blacklisted in modprobe.d"
 fi
 
-# ── 7b: Are modules currently absent (unloaded == de-facto mitigated)? ──
+# ── 7b: Runtime module state ──
+# Not being loaded right now is no mitigation on its own: esp4/esp6 and
+# rxrpc autoload on demand (creating an XFRM state or an AF_RXRPC socket).
+# An unloaded module only counts when it cannot be loaded: not shipped for
+# this kernel, blocked in modprobe.d (7a), or all module loading disabled.
 sep
 printf "\n  ${BOLD}[b] Runtime module state (current session)${RESET}\n\n"
 
-if ! "$ESP4_LOADED" && ! "$ESP6_LOADED"; then
-    ok "esp4 and esp6 not in memory — CVE-2026-43284 not exploitable right now"
-    "$VULN_ESP" && MIT_ESP=true
-else
-    [[ "$ESP4_LOADED" == "true" ]] && fail "esp4 in memory — CVE-2026-43284 exploitable"
-    [[ "$ESP6_LOADED" == "true" ]] && fail "esp6 in memory — CVE-2026-43284 exploitable"
+MODULES_DISABLED=false
+if [[ "$(sysctl -n kernel.modules_disabled 2>/dev/null || true)" == "1" ]]; then
+    MODULES_DISABLED=true
+    ok "kernel.modules_disabled=1 — no module can be loaded until reboot"
 fi
 
-if ! "$RXRPC_LOADED"; then
-    ok "rxrpc not in memory — CVE-2026-43500 not exploitable right now"
-    "$VULN_RXRPC" && MIT_RXRPC=true
+# _loadable <name> <path under kernel/> <blacklisted>: can be loaded on demand.
+_loadable() { ! "$MODULES_DISABLED" && ! "$3" && _ko_shipped "$2"; }
+
+if "$ESP4_LOADED" || "$ESP6_LOADED"; then
+    [[ "$ESP4_LOADED" == "true" ]] && fail "esp4 in memory — CVE-2026-43284 exploitable"
+    [[ "$ESP6_LOADED" == "true" ]] && fail "esp6 in memory — CVE-2026-43284 exploitable"
+elif _loadable esp4 net/ipv4/esp4 "$ESP4_BLACKLISTED" || \
+     _loadable esp6 net/ipv6/esp6 "$ESP6_BLACKLISTED"; then
+    warn "esp4/esp6 not in memory, but autoload on demand — not a mitigation"
+    "$VULN_ESP" && add_issue "CVE-2026-43284: esp4/esp6 unloaded but loadable on demand"
 else
+    ok "esp4 and esp6 not in memory and cannot be loaded — CVE-2026-43284 not reachable"
+    "$VULN_ESP" && MIT_ESP=true
+fi
+
+if "$RXRPC_LOADED"; then
     fail "rxrpc in memory — CVE-2026-43500 exploitable"
+elif _loadable rxrpc net/rxrpc/rxrpc "$RXRPC_BLACKLISTED"; then
+    warn "rxrpc not in memory, but autoloads on demand (AF_RXRPC socket) — not a mitigation"
+    "$VULN_RXRPC" && add_issue "CVE-2026-43500: rxrpc unloaded but loadable on demand"
+else
+    ok "rxrpc not in memory and cannot be loaded — CVE-2026-43500 not reachable"
+    "$VULN_RXRPC" && MIT_RXRPC=true
 fi
 
 # ── 7c: Page cache state ──

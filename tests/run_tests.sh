@@ -88,6 +88,13 @@ add_ko() {
     : > "$1/lib/modules/$k/$2"
 }
 
+# ship_esp <root>: ship esp4/esp6 as loadable modules, as almost every
+# distro kernel does (zstd-compressed, like current Ubuntu).
+ship_esp() {
+    add_ko "$1" kernel/net/ipv4/esp4.ko.zst
+    add_ko "$1" kernel/net/ipv6/esp6.ko.zst
+}
+
 # builtin <root> <module path>: mark a module as built into the kernel.
 builtin() {
     echo "$2" >> "$1/lib/modules/$(cat "$1/.krel")/modules.builtin"
@@ -107,7 +114,8 @@ refute() {
 echo "Kernel version ranges"
 r=$(new_root 4.9.0-13-amd64 debian 9);         check "4.9 predates both bugs"       "$r" 0 SAFE
 r=$(new_root 7.0.0-10-generic ubuntu 26.04);   check "7.0 has both upstream fixes"  "$r" 0 SAFE
-r=$(new_root 5.15.0-100-generic ubuntu 22.04); check "5.15, nothing loaded"         "$r" 2 MITIGATED
+r=$(new_root 5.15.0-100-generic ubuntu 22.04); ship_esp "$r"
+check "5.15, esp4/esp6 shipped but not loaded (autoload)" "$r" 1 VULNERABLE
 
 echo "esp4 / esp6 (CVE-2026-43284)"
 r=$(new_root 6.8.0-40-generic ubuntu 24.04)
@@ -120,8 +128,19 @@ r=$(new_root 6.8.0-40-generic ubuntu 24.04); builtin "$r" kernel/net/ipv6/esp6.k
 check "esp6 built in, absent from lsmod" "$r" 1 VULNERABLE
 
 r=$(new_root 6.8.0-40-generic ubuntu 24.04)
+check "esp4/esp6 not shipped for this kernel" "$r" 2 MITIGATED
+
+r=$(new_root 6.8.0-40-generic ubuntu 24.04); ship_esp "$r"
 printf 'install esp4 /bin/false\ninstall esp6 /bin/false\n' > "$r/etc/modprobe.d/dirtyfrag.conf"
-check "esp4/esp6 blacklisted and not loaded" "$r" 2 MITIGATED
+check "esp4/esp6 shipped, blacklisted, not loaded" "$r" 2 MITIGATED
+
+r=$(new_root 6.8.0-40-generic ubuntu 24.04); ship_esp "$r"
+echo "install esp4 /bin/false" > "$r/etc/modprobe.d/dirtyfrag.conf"
+check "only esp4 blacklisted, esp6 still loadable" "$r" 1 VULNERABLE
+
+r=$(new_root 6.8.0-40-generic ubuntu 24.04); ship_esp "$r"
+check "shipped, not loaded, kernel.modules_disabled=1" "$r" 2 MITIGATED \
+    MOCK_SYSCTL_kernel_modules_disabled=1
 
 r=$(new_root 6.8.0-40-generic ubuntu 24.04)
 printf 'install esp4 /bin/false\ninstall esp6 /bin/false\n' > "$r/etc/modprobe.d/dirtyfrag.conf"
@@ -138,14 +157,22 @@ check "rxrpc shipped and loaded" "$r" 1 VULNERABLE MOCK_LSMOD=rxrpc
 r=$(new_root 6.8.0-40-generic ubuntu 24.04); builtin "$r" kernel/net/rxrpc/rxrpc.ko
 check "rxrpc built in, absent from lsmod" "$r" 1 VULNERABLE
 
+r=$(new_root 6.8.0-40-generic ubuntu 24.04); add_ko "$r" kernel/net/rxrpc/rxrpc.ko.zst
+check "rxrpc.ko.zst shipped, not loaded (autoload)" "$r" 1 VULNERABLE
+refute "rxrpc.ko.zst is detected as shipped" 'rxrpc module not present'
+
+r=$(new_root 6.8.0-40-generic ubuntu 24.04); add_ko "$r" kernel/net/rxrpc/rxrpc.ko.zst
+echo "install rxrpc /bin/false" > "$r/etc/modprobe.d/dirtyfrag.conf"
+check "rxrpc shipped and blacklisted, esp not shipped" "$r" 2 MITIGATED
+
 echo "RHEL vendor kernels"
 r=$(new_root 4.18.0-553.123.2.el8_10.x86_64 almalinux 8.10)
 check "RHEL 8 with the vendor fix" "$r" 0 SAFE
 refute "RHEL 8 vendor fix drops the upstream-range issue" 'lacks upstream fix'
-r=$(new_root 4.18.0-553.100.1.el8_10.x86_64 almalinux 8.10)
-check "RHEL 8 without the vendor fix" "$r" 2 MITIGATED
-r=$(new_root 5.14.0-620.el9.x86_64 almalinux 9.6)
-check "RHEL 9 placeholder threshold does not clear the verdict" "$r" 2 MITIGATED
+r=$(new_root 4.18.0-553.100.1.el8_10.x86_64 almalinux 8.10); ship_esp "$r"
+check "RHEL 8 without the vendor fix" "$r" 1 VULNERABLE
+r=$(new_root 5.14.0-620.el9.x86_64 almalinux 9.6); ship_esp "$r"
+check "RHEL 9 placeholder threshold does not clear the verdict" "$r" 1 VULNERABLE
 
 echo "Hardening"
 r=$(new_root 6.8.0-40-generic ubuntu 24.04)
