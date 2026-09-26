@@ -194,7 +194,8 @@ _rhel_check() {
             if (( n >= 615 )); then patched_esp=true; fi   # placeholder — check upstream
             if "$patched_esp"; then
                 ok "RHEL/AlmaLinux 9: CVE-2026-43284 — PATCHED"
-                KERNEL_PATCHED=true
+                # Threshold above is a placeholder, so it does not set
+                # KERNEL_PATCHED and cannot clear the verdict.
             else
                 fail "RHEL/AlmaLinux 9: check dnf update kernel for CVE-2026-43284 fix"
                 add_issue "RHEL9 kernel — verify patch via dnf"
@@ -239,6 +240,18 @@ case "$DISTRO_ID" in
     *)              info "Distribution $DISTRO_ID — manual patch verification required" ;;
 esac
 
+# A vendor-patched kernel (RHEL 8) still sits inside the upstream vulnerable
+# range checked in §2, so clear that verdict and its issue here.
+if "$KERNEL_PATCHED" && "$VULN_ESP"; then
+    VULN_ESP=false
+    ok "Vendor kernel carries the CVE-2026-43284 fix — upstream range check overridden"
+    _kept=()
+    for i in "${ISSUES[@]}"; do
+        [[ "$i" == "CVE-2026-43284: kernel "* ]] || _kept+=("$i")
+    done
+    ISSUES=("${_kept[@]+"${_kept[@]}"}")
+fi
+
 # ─────────────────────────────────────────────────────────────────────────────
 #  §5  MODULE STATUS — esp4 / esp6 (CVE-2026-43284)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -279,6 +292,11 @@ if lsmod 2>/dev/null | grep -q '^esp4 '; then
     ESP4_LOADED=true
     fail "esp4 module is LOADED (CVE-2026-43284 vector active)"
     add_issue "CVE-2026-43284: esp4 loaded and exploitable"
+elif "$ESP4_BUILTIN"; then
+    # Built-in modules never show in lsmod but are always present.
+    ESP4_LOADED=true
+    fail "esp4 is BUILT INTO the kernel (CVE-2026-43284 vector always active)"
+    add_issue "CVE-2026-43284: esp4 built-in — modprobe.d mitigation ineffective"
 else
     ok "esp4 — not loaded"
 fi
@@ -287,6 +305,11 @@ if lsmod 2>/dev/null | grep -q '^esp6 '; then
     ESP6_LOADED=true
     fail "esp6 module is LOADED (CVE-2026-43284 vector active)"
     add_issue "CVE-2026-43284: esp6 loaded and exploitable"
+elif "$ESP6_BUILTIN"; then
+    # Built-in modules never show in lsmod but are always present.
+    ESP6_LOADED=true
+    fail "esp6 is BUILT INTO the kernel (CVE-2026-43284 vector always active)"
+    add_issue "CVE-2026-43284: esp6 built-in — modprobe.d mitigation ineffective"
 else
     ok "esp6 — not loaded"
 fi
@@ -327,6 +350,9 @@ if lsmod 2>/dev/null | grep -q '^rxrpc '; then
     RXRPC_LOADED=true
     fail "rxrpc module is LOADED (CVE-2026-43500 vector active)"
     add_issue "CVE-2026-43500: rxrpc loaded and exploitable"
+elif "$RXRPC_BUILTIN"; then
+    # Built-in: absent from lsmod but always present (warned above).
+    RXRPC_LOADED=true
 else
     ok "rxrpc — not loaded"
 fi
@@ -353,7 +379,6 @@ fi
 # ─────────────────────────────────────────────────────────────────────────────
 header "7 · Mitigation Status"
 
-BLACKLIST_FILE="/etc/modprobe.d/dirtyfrag.conf"
 ESP4_BLACKLISTED=false; ESP6_BLACKLISTED=false; RXRPC_BLACKLISTED=false
 
 # ── 7a: modprobe.d ──
@@ -375,7 +400,7 @@ if "$ESP4_BLACKLISTED" && "$ESP6_BLACKLISTED"; then
         MIT_ESP=true
         add_mitigation "esp4 + esp6 blacklisted and not loaded (CVE-2026-43284)"
     else
-        warn "esp4/esp6 blacklisted but still loaded — rmmod required"
+        warn "esp4/esp6 blacklisted but still in memory — rmmod required (ineffective if built-in)"
         add_issue "esp4/esp6 blacklisted but still active in memory"
     fi
 elif "$VULN_ESP"; then
@@ -388,7 +413,7 @@ if "$RXRPC_BLACKLISTED"; then
         "$VULN_RXRPC" && MIT_RXRPC=true
         add_mitigation "rxrpc blacklisted and not loaded (CVE-2026-43500)"
     else
-        warn "rxrpc blacklisted but still loaded — rmmod required"
+        warn "rxrpc blacklisted but still in memory — rmmod required (ineffective if built-in)"
         add_issue "rxrpc blacklisted but still active in memory"
     fi
 elif "$VULN_RXRPC" && "$RXRPC_LOADED"; then
@@ -554,10 +579,8 @@ _verdict_row "CVE-2026-43500" "$VULN_RXRPC" "$MIT_RXRPC" "(rxrpc   — AFS in-pl
 
 # Overall state
 OVERALL_VULN=false
-OVERALL_MIT=false
 "$VULN_ESP"   && ! "$MIT_ESP"   && OVERALL_VULN=true
 "$VULN_RXRPC" && ! "$MIT_RXRPC" && OVERALL_VULN=true
-( "$VULN_ESP" && "$MIT_ESP" ) || ( "$VULN_RXRPC" && "$MIT_RXRPC" ) && OVERALL_MIT=true
 
 echo ""
 if ! "$VULN_ESP" && ! "$VULN_RXRPC"; then
