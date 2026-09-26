@@ -49,6 +49,15 @@ set -euo pipefail
 PATH=/usr/sbin:/usr/bin:/sbin:/bin
 export PATH
 
+# Test hooks: tests/run_tests.sh prepends mock commands to PATH and points
+# ROOT at a fixture tree holding the system files read below. Never honoured
+# for root, so a real audit always sees the pinned PATH and the real system.
+ROOT=""
+if [[ $EUID -ne 0 ]]; then
+    if [[ -n "${DIRTYFRAG_TEST_PATH:-}" ]]; then PATH="${DIRTYFRAG_TEST_PATH}:$PATH"; fi
+    ROOT="${DIRTYFRAG_TEST_ROOT:-}"
+fi
+
 # ─── Colours ──────────────────────────────────────────────────────────────────
 RED='\033[0;31m'; YELLOW='\033[1;33m'; GREEN='\033[0;32m'
 CYAN='\033[0;36m'; BOLD='\033[1m'; DIM='\033[2m'
@@ -107,10 +116,10 @@ KVER_MINOR=$(cut -d. -f2 <<< "$KERNEL")
 KVER_PATCH=$(cut -d. -f3 <<< "$KERNEL" | grep -oP '^\d+' || echo 0)
 
 DISTRO_NAME="unknown"; DISTRO_ID="unknown"; DISTRO_VERSION="0"
-if [[ -r /etc/os-release ]]; then
+if [[ -r "$ROOT/etc/os-release" ]]; then
     # Parsed as plain key=value text, not sourced — /etc/os-release is
     # shell syntax and sourcing it would execute arbitrary embedded code.
-    _osrel() { sed -n "/^$1=/{s///;s/^[\"']//;s/[\"']\$//;p;q;}" /etc/os-release; }
+    _osrel() { sed -n "/^$1=/{s///;s/^[\"']//;s/[\"']\$//;p;q;}" "$ROOT/etc/os-release"; }
     OS_NAME=$(_osrel NAME); OS_ID=$(_osrel ID); OS_VERSION_ID=$(_osrel VERSION_ID)
     DISTRO_NAME="${OS_NAME:-unknown} ${OS_VERSION_ID}"
     DISTRO_ID="${OS_ID:-unknown}"
@@ -264,14 +273,14 @@ ESP4_LOADED=false; ESP6_LOADED=false
 ESP4_BUILTIN=false; ESP6_BUILTIN=false
 
 # ── Check built-in ──
-if [[ -f /lib/modules/"$(uname -r)"/modules.builtin ]]; then
-    grep -q 'esp4\.ko\|esp4$' /lib/modules/"$(uname -r)"/modules.builtin 2>/dev/null && ESP4_BUILTIN=true
-    grep -q 'esp6\.ko\|esp6$' /lib/modules/"$(uname -r)"/modules.builtin 2>/dev/null && ESP6_BUILTIN=true
+if [[ -f "$ROOT"/lib/modules/"$(uname -r)"/modules.builtin ]]; then
+    grep -q 'esp4\.ko\|esp4$' "$ROOT"/lib/modules/"$(uname -r)"/modules.builtin 2>/dev/null && ESP4_BUILTIN=true
+    grep -q 'esp6\.ko\|esp6$' "$ROOT"/lib/modules/"$(uname -r)"/modules.builtin 2>/dev/null && ESP6_BUILTIN=true
 fi
 
 # ── Check kernel config ──
 CONFIG_FILE=""
-for f in /proc/config.gz "/boot/config-$(uname -r)" /boot/config; do
+for f in "$ROOT/proc/config.gz" "$ROOT/boot/config-$(uname -r)" "$ROOT/boot/config"; do
     [[ -f "$f" ]] && { CONFIG_FILE="$f"; break; }
 done
 
@@ -320,8 +329,9 @@ fi
 # ── Check if IPsec is actively in use ──
 sep
 if command -v ip &>/dev/null; then
-    XFRM_SA=$(ip xfrm state 2>/dev/null | grep -c 'src' || echo 0)
-    XFRM_POL=$(ip xfrm policy 2>/dev/null | grep -c 'src' || echo 0)
+    # grep -c already prints 0 on no match (then exits 1): don't add another.
+    XFRM_SA=$(ip xfrm state 2>/dev/null | grep -c 'src' || true)
+    XFRM_POL=$(ip xfrm policy 2>/dev/null | grep -c 'src' || true)
     if (( XFRM_SA > 0 )) || (( XFRM_POL > 0 )); then
         warn "Active IPsec state/policy detected — disabling esp4/esp6 will break IPsec!"
         warn "XFRM SAs: $XFRM_SA | Policies: $XFRM_POL"
@@ -339,8 +349,8 @@ header "6 · Module Status — rxrpc (CVE-2026-43500)"
 RXRPC_LOADED=false; RXRPC_BUILTIN=false
 
 # ── Built-in check ──
-if [[ -f /lib/modules/"$(uname -r)"/modules.builtin ]]; then
-    grep -q 'rxrpc' /lib/modules/"$(uname -r)"/modules.builtin 2>/dev/null && RXRPC_BUILTIN=true
+if [[ -f "$ROOT"/lib/modules/"$(uname -r)"/modules.builtin ]]; then
+    grep -q 'rxrpc' "$ROOT"/lib/modules/"$(uname -r)"/modules.builtin 2>/dev/null && RXRPC_BUILTIN=true
 fi
 
 if [[ "$RXRPC_BUILTIN" == "true" ]]; then
@@ -361,8 +371,8 @@ else
 fi
 
 # ── Check if rxrpc exists as a module at all (might not be shipped on older distros) ──
-if [[ ! -f "/lib/modules/$(uname -r)/kernel/net/rxrpc/rxrpc.ko" ]] && \
-   [[ ! -f "/lib/modules/$(uname -r)/kernel/net/rxrpc/rxrpc.ko.xz" ]] && \
+if [[ ! -f "$ROOT/lib/modules/$(uname -r)/kernel/net/rxrpc/rxrpc.ko" ]] && \
+   [[ ! -f "$ROOT/lib/modules/$(uname -r)/kernel/net/rxrpc/rxrpc.ko.xz" ]] && \
    [[ "$RXRPC_BUILTIN" == "false" ]]; then
     ok "rxrpc module not present on this system — CVE-2026-43500 NOT applicable"
     VULN_RXRPC=false
@@ -387,7 +397,7 @@ ESP4_BLACKLISTED=false; ESP6_BLACKLISTED=false; RXRPC_BLACKLISTED=false
 # ── 7a: modprobe.d ──
 printf "\n  ${BOLD}[a] modprobe.d blacklist${RESET}\n\n"
 
-for modconf in /etc/modprobe.d/*.conf; do
+for modconf in "$ROOT"/etc/modprobe.d/*.conf; do
     [[ -f "$modconf" ]] || continue
     grep -qP '^(blacklist|install)\s+esp4'  "$modconf" 2>/dev/null && \
         { ESP4_BLACKLISTED=true;  ok "esp4  blacklisted in $modconf"; }
@@ -450,7 +460,7 @@ info "CopyFail/DirtyFrag can leave poisoned page cache after exploit attempt"
 info "Recommended post-mitigation: echo 3 > /proc/sys/vm/drop_caches"
 
 # Check if drop_caches is accessible
-if [[ -w /proc/sys/vm/drop_caches ]]; then
+if [[ -w "$ROOT/proc/sys/vm/drop_caches" ]]; then
     ok "drop_caches is writable (root can flush page cache if needed)"
 else
     info "drop_caches not writable by current user (root-only)"
@@ -500,8 +510,8 @@ fi
 
 # ── Container check ──
 IN_CONTAINER=false
-[[ -f /.dockerenv ]] && { IN_CONTAINER=true; warn "Running INSIDE a Docker container"; }
-grep -q 'container=podman\|container=lxc' /proc/1/environ 2>/dev/null && \
+[[ -f "$ROOT/.dockerenv" ]] && { IN_CONTAINER=true; warn "Running INSIDE a Docker container"; }
+grep -q 'container=podman\|container=lxc' "$ROOT/proc/1/environ" 2>/dev/null && \
     { IN_CONTAINER=true; warn "Running inside a container (podman/lxc)"; }
 
 if "$IN_CONTAINER"; then
@@ -509,13 +519,13 @@ if "$IN_CONTAINER"; then
     add_issue "Container context: page cache shared with host — container escape risk"
 fi
 
-if command -v kubectl &>/dev/null || [[ -f /var/run/secrets/kubernetes.io/serviceaccount/token ]]; then
+if command -v kubectl &>/dev/null || [[ -f "$ROOT/var/run/secrets/kubernetes.io/serviceaccount/token" ]]; then
     warn "Kubernetes environment detected — all nodes require patching"
     add_issue "Kubernetes node — shared page cache risk across pods (container escape)"
 fi
 
 # ── Check for active users (multi-tenant risk) ──
-ACTIVE_USERS=$(who 2>/dev/null | awk '{print $1}' | sort -u | grep -v "$(whoami)" | wc -l || echo 0)
+ACTIVE_USERS=$(who 2>/dev/null | awk '{print $1}' | sort -u | { grep -v "$(whoami)" || true; } | wc -l)
 if (( ACTIVE_USERS > 0 )); then
     warn "Other users currently logged in: $ACTIVE_USERS — multi-user exposure active"
     add_issue "$ACTIVE_USERS other user(s) logged in — LPE risk is immediate"
@@ -549,8 +559,8 @@ if command -v getenforce &>/dev/null; then
     [[ "$SE" == "Enforcing" ]] && \
         { ok "SELinux: Enforcing"; add_mitigation "SELinux Enforcing"; } || \
         warn "SELinux: $SE"
-elif [[ -f /sys/module/apparmor/parameters/enabled ]]; then
-    AA=$(cat /sys/module/apparmor/parameters/enabled)
+elif [[ -f "$ROOT/sys/module/apparmor/parameters/enabled" ]]; then
+    AA=$(cat "$ROOT/sys/module/apparmor/parameters/enabled")
     [[ "$AA" == "Y" ]] && { ok "AppArmor: active"; add_mitigation "AppArmor active"; } || \
         warn "AppArmor: inactive"
 else

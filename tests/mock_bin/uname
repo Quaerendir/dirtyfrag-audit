@@ -1,0 +1,7 @@
+#!/bin/bash
+# Mock uname: kernel release comes from MOCK_UNAME_R.
+case "${1:-}" in
+    -r) echo "${MOCK_UNAME_R:?MOCK_UNAME_R not set}" ;;
+    -m) echo x86_64 ;;
+    *)  echo Linux ;;
+esac

@@ -1,0 +1,4 @@
+#!/bin/bash
+# Mock dpkg: `dpkg -l linux-image-X` reports X as installed.
+[[ "${1:-}" == "-l" ]] && printf 'ii  %s  1.0-test  amd64  Linux kernel image\n' "${2:-}"
+exit 0

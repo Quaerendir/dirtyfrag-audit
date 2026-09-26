@@ -1,0 +1,3 @@
+#!/bin/bash
+# Mock sysctl: every key reads as unavailable (the script prints N/A).
+exit 1

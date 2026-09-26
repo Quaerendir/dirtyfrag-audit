@@ -1,0 +1,7 @@
+#!/bin/bash
+# Mock KernelCare CLI, only on PATH for the live-patch test cases.
+# --patch-info prints MOCK_KCARE_INFO.
+case "${1:-}" in
+    --version)    echo "kcarectl 2.99-test" ;;
+    --patch-info) printf '%s\n' "${MOCK_KCARE_INFO:-}" ;;
+esac

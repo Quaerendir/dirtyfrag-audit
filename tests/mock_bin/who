@@ -1,0 +1,3 @@
+#!/bin/bash
+# Mock who: no other users logged in.
+exit 0

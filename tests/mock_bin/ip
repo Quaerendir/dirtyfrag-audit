@@ -1,0 +1,7 @@
+#!/bin/bash
+# Mock ip: no interfaces and no XFRM state or policy unless MOCK_XFRM_STATE
+# holds `ip xfrm state` output.
+if [[ "${1:-}" == "xfrm" && "${2:-}" == "state" ]]; then
+    [[ -n "${MOCK_XFRM_STATE:-}" ]] && printf '%s\n' "$MOCK_XFRM_STATE"
+fi
+exit 0

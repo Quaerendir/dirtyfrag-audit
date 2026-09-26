@@ -1,0 +1,6 @@
+#!/bin/bash
+# Mock lsmod: loaded modules are the space-separated names in MOCK_LSMOD.
+echo "Module                  Size  Used by"
+for m in ${MOCK_LSMOD:-}; do
+    printf '%-24s%6s  0\n' "$m" 16384
+done

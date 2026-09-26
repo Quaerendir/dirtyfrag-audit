@@ -1,0 +1,3 @@
+#!/bin/bash
+# Mock rpm: `rpm -q kernel` reports the running (mocked) kernel.
+echo "kernel-$(uname -r)"

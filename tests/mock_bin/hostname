@@ -1,0 +1,3 @@
+#!/bin/bash
+# Mock hostname: fixed name keeps output independent of the test machine.
+echo testhost
