@@ -2,8 +2,8 @@
 # =============================================================================
 #  audit_dirtyfrag.sh — CVE-2026-43284 / CVE-2026-43500 "Dirty Frag" Audit
 #  Author  : Quaerendir
-#  Version : 1.0.0
-#  Date    : 2026-05-16
+#  Version : 1.1.0
+#  Date    : 2026-09-26
 #  License : MIT
 #  Repo    : https://github.com/Quaerendir/dirtyfrag-audit
 #
@@ -103,7 +103,7 @@ cat <<'BANNER'
   ╚═════╝ ╚═╝╚═╝  ╚═╝   ╚═╝      ╚═╝       ╚═╝     ╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝
 BANNER
 printf "${RESET}"
-printf "  ${BOLD}CVE-2026-43284 + CVE-2026-43500 \"Dirty Frag\" — Linux Kernel LPE Audit v1.0.0${RESET}\n"
+printf "  ${BOLD}CVE-2026-43284 + CVE-2026-43500 \"Dirty Frag\" — Linux Kernel LPE Audit v1.1.0${RESET}\n"
 printf "  ${DIM}Disclosed 2026-05-07 | CVE-2026-43284: CVSS 8.8 | CVE-2026-43500: CVSS 7.8${RESET}\n"
 printf "  ${DIM}Vectors: esp4/esp6 (IPsec) + rxrpc (AFS) | in-place decryption page-cache write${RESET}\n\n"
 
@@ -695,7 +695,7 @@ cat <<'REMED'
 
 REMED
 
-printf "  ${DIM}audit_dirtyfrag.sh v1.0.0 — github.com/Quaerendir/dirtyfrag-audit${RESET}\n\n"
+printf "  ${DIM}audit_dirtyfrag.sh v1.1.0 — github.com/Quaerendir/dirtyfrag-audit${RESET}\n\n"
 
 # ── Exit code ──
 if   ! "$VULN_ESP" && ! "$VULN_RXRPC"; then exit 0
