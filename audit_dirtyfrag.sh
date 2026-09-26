@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/bash
 # =============================================================================
 #  audit_dirtyfrag.sh — CVE-2026-43284 / CVE-2026-43500 "Dirty Frag" Audit
 #  Author  : Quaerendir
